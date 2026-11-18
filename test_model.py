@@ -37,8 +37,11 @@ def evaluate_topk(model, test_iterable, k_values=(1, 2, 3)):
     
     for entry in tqdm.tqdm(test_iterable):
         llm_name     = entry['llm']                       # ← key present in your JSON
+        if llm_name not in llms_map:
+            continue
         gt_label     = llms_map[llm_name]           # ground-truth string
-        answers      = [trace[1] for trace in entry['traces']]
+        by_q         = {q: a for q, a in entry['traces']}
+        answers      = [by_q[q] for q in model.queries]   # works with query_subset too
 
         distances    = model(answers)                    # forward pass
         num_samples += 1

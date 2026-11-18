@@ -64,6 +64,21 @@ class PromptConf:
         raw_str = " ".join(map(str, self.raw))
         return raw_str
 
+    # Two confs are the same if they materialise the same prompts with the same
+    # decoding params. (Without this, `set()` de-duplication in
+    # PromptConfFactory.sample was a no-op because objects hashed by identity.)
+    def _key(self):
+        return (
+            self.system_prompt, self.cot_prompt, self.rag_prompt,
+            tuple(sorted((k, str(v)) for k, v in self.sampling_hparams.items())),
+        )
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __eq__(self, other):
+        return isinstance(other, PromptConf) and self._key() == other._key()
+
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -154,8 +169,9 @@ class PromptConfFactory:
         ``{home_dir}/confs/prompt_configurations``.
     """
 
-    def __init__(self, home_dir: Union[str, Path]):
+    def __init__(self, home_dir: Union[str, Path], seed: Optional[int] = None):
         self._cfg = _ConfigLoader(home_dir)
+        self.rng = random.Random(seed)
 
         # Collections ------------------------------------------------------
         self.sampling_universe: Dict[str, Any] = self._cfg.constant("sampling_universe", {})
@@ -189,10 +205,11 @@ class PromptConfFactory:
         if not self.documents_rag:
             return None
 
-        _, _, background_texts = random.choice(self.documents_rag)
-        random.shuffle(background_texts)
+        _, _, background_texts = self.rng.choice(self.documents_rag)
+        background_texts = list(background_texts)  # don't shuffle the shared corpus in place
+        self.rng.shuffle(background_texts)
 
-        n_chunks = random.randint(self.MIN_CHUNKS_RAG, self.MAX_CHUNKS_RAG)
+        n_chunks = self.rng.randint(self.MIN_CHUNKS_RAG, self.MAX_CHUNKS_RAG)
         chunks = background_texts[:n_chunks]
         chunks_text = "".join(t_chunk % c for c in chunks)
 
@@ -208,7 +225,10 @@ class PromptConfFactory:
 
     def sample_one(self, pool=TRAIN) -> PromptConf:
         """Return a freshly sampled *PromptConf* instance."""
-        sampling_hparams = sample_from_multi_universe(self.sampling_universe)
+        sampling_hparams = {k: self.rng.choice(u) for k, u in self.sampling_universe.items()}
+        if not sampling_hparams.get('do_sample', True):
+            # greedy decoding: temperature is meaningless, keep the conf canonical
+            sampling_hparams.pop('temperature', None)
         
         system_prompt = self._cond_choice("systems", self.WITH_SYSTEM_P, pool)
         cot_prompt = self._cond_choice("cot_prompts", self.COT_P, pool)
@@ -228,15 +248,27 @@ class PromptConfFactory:
     def _cond_choice(self, collection_name, p, pool):
         collection = self.params[collection_name]
         avaliable = self.train_test_split[pool][collection_name]
-        idx = random.choice(avaliable) if avaliable and random.random() < p else None
+        idx = self.rng.choice(avaliable) if avaliable and self.rng.random() < p else None
         return None if idx is None else collection[idx]
 
-    def sample(self, n, pool=TRAIN):
-        """Sample n unique confs"""
+    def sample(self, n, pool=TRAIN, max_tries_factor=200):
+        """Sample n unique confs from `pool` (TRAIN or TEST).
+
+        Fixes two bugs of the original implementation: `pool` was ignored (test
+        confs were drawn from the *train* split of system/CoT/RAG prompts) and
+        de-duplication didn't work (PromptConf had no __hash__/__eq__).
+        """
         assert n > 0
-        s = set()
-        while len(s) != n:
-            s.add(self.sample_one())
-        return list(s)
+        out, seen = [], set()
+        tries = 0
+        while len(out) < n:
+            pc = self.sample_one(pool=pool)
+            tries += 1
+            if pc not in seen:
+                seen.add(pc)
+                out.append(pc)
+            elif tries > n * max_tries_factor:
+                raise RuntimeError(f"Could only sample {len(out)} unique prompt confs out of {n} requested for pool '{pool}'")
+        return out
             
 

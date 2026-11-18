@@ -1,0 +1,132 @@
+[
+ {
+  "name": "meta-llama/Llama-3.1-8B-Instruct",
+  "backend": "hf",
+  "label": "meta-llama/llama-3.1-8b-instruct",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "meta-llama/Llama-3.3-70B-Instruct",
+  "backend": "hf",
+  "label": "meta-llama/llama-3.3-70b-instruct",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+  "backend": "hf",
+  "label": "meta-llama/llama-4-scout",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen2.5-7B-Instruct",
+  "backend": "hf"
+ },
+ {
+  "name": "Qwen/Qwen2.5-72B-Instruct",
+  "backend": "hf",
+  "label": "qwen/qwen-2.5-72b-instruct",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3-8B",
+  "backend": "hf"
+ },
+ {
+  "name": "Qwen/Qwen3-14B",
+  "backend": "hf",
+  "label": "qwen/qwen3-14b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3-32B",
+  "backend": "hf",
+  "label": "qwen/qwen3-32b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+  "backend": "hf",
+  "label": "qwen/qwen3-30b-a3b-instruct-2507",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3.5-9B",
+  "backend": "hf",
+  "label": "qwen/qwen3.5-9b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3.5-27B",
+  "backend": "hf",
+  "label": "qwen/qwen3.5-27b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "Qwen/Qwen3.6-27B",
+  "backend": "hf",
+  "label": "qwen/qwen3.6-27b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "mistralai/Mistral-7B-Instruct-v0.3",
+  "backend": "hf"
+ },
+ {
+  "name": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+  "backend": "hf",
+  "label": "mistralai/mistral-small-3.2-24b-instruct",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "mistralai/Ministral-8B-Instruct-2410",
+  "backend": "hf"
+ },
+ {
+  "name": "google/gemma-3-12b-it",
+  "backend": "hf",
+  "label": "google/gemma-3-12b-it",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "google/gemma-3-27b-it",
+  "backend": "hf",
+  "label": "google/gemma-3-27b-it",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "openai/gpt-oss-20b",
+  "backend": "hf",
+  "label": "openai/gpt-oss-20b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "openai/gpt-oss-120b",
+  "backend": "hf",
+  "label": "openai/gpt-oss-120b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "microsoft/phi-4",
+  "backend": "hf",
+  "label": "microsoft/phi-4",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ },
+ {
+  "name": "ibm-granite/granite-3.3-8b-instruct",
+  "backend": "hf"
+ },
+ {
+  "name": "ibm-granite/granite-4.0-h-small",
+  "backend": "hf"
+ },
+ {
+  "name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "backend": "hf"
+ },
+ {
+  "name": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+  "backend": "hf",
+  "label": "nvidia/nemotron-3-nano-30b-a3b",
+  "note": "same weights as the OpenRouter-hosted model -> merged into one class"
+ }
+]

@@ -1,0 +1,49 @@
+{
+    "dataset_path": "./data/datasets/soc_v1.jsonl",
+    "embedding_cache_path": "./data/embedding_cache/soc_v1.pt",
+    "max_number_chars_response": 650,
+    "normalize_markdown": true,
+    "query_subset": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        9,
+        12
+    ],
+    "embedding_model_id": 0,
+    "seed": 0,
+    "batch_size": 128,
+    "embedding_batch_size": 256,
+    "num_pairs_per_epoch": 500000,
+    "num_pairs_per_eval": 5000,
+    "open_set_loss": "triplet",
+    "pk_batch": [
+        32,
+        4
+    ],
+    "inference_model": {
+        "num_blocks": 3,
+        "feature_size": 384,
+        "norm_layer": "BatchNorm1d",
+        "num_heads": 4,
+        "activation": "gelu",
+        "optimizer": {
+            "name": "AdamW",
+            "params": {
+                "lr": 0.0003,
+                "weight_decay": 0.01
+            }
+        },
+        "with_add_dense_class": false,
+        "margin": 0.3
+    },
+    "training": {
+        "max_epochs": 50,
+        "early_stop_patience": 5,
+        "log_every_n_steps": 100,
+        "gradient_clip_val": 1.0
+    }
+}

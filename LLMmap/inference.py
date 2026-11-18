@@ -12,6 +12,11 @@ from . import CONF_NAME, MODEL_NAME, TEMPLATE_NAME
 from .utility import read_conf_file
 from .embedding_model import load_model as load_model_emb
 from .inference_model_archs import InferenceModelLLMmap
+from .text_norm import normalizer_from_conf
+
+# Families whose names don't follow the vendor/stem convention.
+FAMILY_OVERRIDES = {}
+
 
 def read_templates(templates_path):
     with open(templates_path) as f:
@@ -62,7 +67,7 @@ def load_LLMmap(model_home_dir, device='cpu', **kargs):
         raise RuntimeError(f"Failed to initialize InferenceModelLLMmap: {e}")
 
     try:
-        net.load_state_dict(torch.load(model_path))
+        net.load_state_dict(torch.load(model_path, map_location='cpu'))
     except Exception as e:
         raise RuntimeError(f"Failed to load model state from {model_path}: {e}")
 
@@ -92,7 +97,8 @@ class InferenceModel:
         self.queries = self.conf['queries']
                 
         self.print("\tLoading Embedding Model...")
-        self.emb_model_id = self.conf.get('emb_model_id', 0)
+        self.emb_model_id = self.conf.get('embedding_model_id', self.conf.get('emb_model_id', 0))
+        self.normalizer = normalizer_from_conf(self.conf)
         self.emb_model = load_model_emb(self.emb_model_id, self.device)
         
         self.print("\tPre-comupting Queries embeddings...")
@@ -103,26 +109,30 @@ class InferenceModel:
         
         
     def __call__(self, answers):
-        if len(answers) != len(self.queries):
-            raise Exeception(f"Model supports {self.queries} queries, {len(answers)} answers provided")
-        answers = [self._preprocess_answers(answer) for answer in answers]
-
+        """`answers`: one list with an answer per query, or a list of such lists
+        (several independent sessions with the target -> one output row per session)."""
+        sessions = answers if answers and isinstance(answers[0], (list, tuple)) else [answers]
+        rows = []
+        for ans in sessions:
+            if len(ans) != len(self.queries):
+                raise ValueError(f"Model expects {len(self.queries)} answers (one per query), {len(ans)} provided")
+            ans = [self._preprocess_answers(a) for a in ans]
+            with torch.no_grad():
+                emb_outs = self.emb_model.get_embedding(ans).to(self.emb_queries.device)
+                rows.append(torch.cat((self.emb_queries, emb_outs), dim=1))
         with torch.no_grad():
-            emb_outs = self.emb_model.get_embedding(answers)
-            traces = torch.cat((self.emb_queries, emb_outs), dim=1)
-            traces = traces.unsqueeze(0)
-            output = self.model(traces)
+            output = self.model(torch.stack(rows).to(self.device))
         return output
-        
+
     def _preprocess_answers(self, out):
-        return out[:self.conf['max_number_chars_response']]
+        return self.normalizer(out)
                 
 class InferenceModel_closed(InferenceModel):
     
     def __call__(self, answers):
         logits = super().__call__(answers)
         with torch.no_grad():
-            p = F.softmax(logits, dim=-1).cpu().numpy()[0]
+            p = F.softmax(logits, dim=-1).mean(0).cpu().numpy()  # average over sessions
         return p
     
     def print_result(self, probabilities, k=5):
@@ -169,29 +179,54 @@ class InferenceModel_open(InferenceModel):
             self.DB = None
             print(f'[WARNING] No template file found for the model.')
             
-    def __call__(self, answers):
-        emb = super().__call__(answers).cpu().numpy()
+    def features(self, answers):
+        return super().__call__(answers).cpu().numpy()
 
+    def __call__(self, answers):
+        """Distances to every template. With several sessions, the per-session
+        distances are averaged (more robust than any single session)."""
         if self.templates_map is None:
             raise Exception("No templates provided upon model creation.")
-        
-        distances = cdist(emb, self.DB, metric=self.distance_fn)[0]
-        return distances
+        emb = self.features(answers)
+        if self.conf.get('l2_normalize_features'):
+            emb = emb / np.linalg.norm(emb, axis=1, keepdims=True).clip(1e-12)
+        distances = cdist(emb, self.DB, metric=self.distance_fn)
+        return distances.mean(0)
+
+    @staticmethod
+    def family_of(llm):
+        """'openai/gpt-4.1-mini' -> 'openai/gpt'; 'anthropic/claude-sonnet-4.5' -> 'anthropic/claude';
+        'meta-llama/Llama-3.1-8B-Instruct' -> 'meta-llama/llama'."""
+        import re
+        if llm in FAMILY_OVERRIDES:
+            return FAMILY_OVERRIDES[llm]
+        vendor, _, model = llm.rpartition('/')
+        m = re.match(r'[a-zA-Z]+', model)
+        stem = (m.group(0) if m else model).lower().rstrip('-')
+        return f"{vendor.lower()}/{stem}" if vendor else stem
+
+    def family_ranking(self, distances):
+        fam = {}
+        for i, d in enumerate(distances):
+            f = self.family_of(self.label_map[i])
+            fam[f] = min(fam.get(f, np.inf), d)
+        return sorted(fam.items(), key=lambda kv: kv[1])
 
     def compute_template(self, entries):
-        es = self.conf['inference_model']['feature_size']
-        _template = np.zeros((len(entries), es))
-        for i, entry in enumerate(entries):
-            answers = [t[1] for t in entry['traces']]
-            emb = super().__call__(answers)
-            _template[i] = emb.cpu().numpy()
-        return _template.mean(0)
+        qs = self.queries
+        sessions = []
+        for entry in entries:
+            by_q = {t[0]: t[1] for t in entry['traces']}
+            sessions.append([by_q[q] for q in qs])
+        feats = np.concatenate([self.features(sessions[i:i + 64]) for i in range(0, len(sessions), 64)])
+        if self.conf.get('l2_normalize_features'):
+            feats = feats / np.linalg.norm(feats, axis=1, keepdims=True).clip(1e-12)
+        return feats.mean(0)
 
-    def print_result(self, distances, k=5):
+    def print_result(self, distances, k=5, families=True):
         if k < 1:
             raise ValueError("k must be at least 1")
-        if k > len(distances):
-            raise ValueError("k cannot be greater than the number of classes")
+        k = min(k, len(distances))
 
         sorted_indices = np.argsort(distances)
         top_k_indices = sorted_indices[:k]
@@ -208,6 +243,23 @@ class InferenceModel_open(InferenceModel):
                 print(f"\t[Distance: {dist_str}] \t--> {self.label_map[index]} <--")
             else:
                 print(f"\t[Distance: {dist_str}] \t{self.label_map[index]}")
+
+        ths = self.conf.get('open_set_threshold')
+        if ths is not None:
+            best = distances[sorted_indices[0]]
+            if best > ths:
+                print(f"\n\t[!] Closest distance {best:.4f} > open-set threshold {ths:.4f}: the target is probably "
+                      f"NOT one of the {len(distances)} known models (or it is heavily wrapped). Treat the ranking as 'most similar'.")
+            else:
+                print(f"\n\t[ok] Closest distance {best:.4f} <= open-set threshold {ths:.4f}.")
+            if len(sorted_indices) > 1:
+                gap = distances[sorted_indices[1]] - best
+                print(f"\t     Margin to runner-up: {gap:.4f}")
+
+        if families:
+            print("\nFamily ranking (closest member per family):\n")
+            for f, d in self.family_ranking(distances)[:k]:
+                print(f"\t[Distance: {d:.4f}] \t{f}")
 
 
     def add_entry_and_save_templates(self, new_llm, new_template):

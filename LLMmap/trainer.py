@@ -191,52 +191,119 @@ class LLMmapTrainerSiamese(pl.LightningModule):
             return opt_cls(self.parameters(), **kwargs)
     
         # ── old tuple style (cls, kwargs) ────────────────────────────────
+        opt_cls, opt_kw = opt_cfg
         return opt_cls(self.parameters(), **opt_kw)
+
+
+def _make_optimizer(params, opt_cfg):
+    if isinstance(opt_cfg, dict):
+        return OPTIMIZERS[opt_cfg["name"]](params, **opt_cfg.get("params", {}))
+    opt_cls, opt_kw = opt_cfg
+    return opt_cls(params, **opt_kw)
+
+
+def batch_hard_triplet_loss(feats, labels, margin=0.3, normalize=True):
+    """Batch-hard triplet loss (Hermans et al., 2017).
+
+    For every anchor: hardest positive (farthest same-LLM trace) vs hardest negative
+    (closest other-LLM trace). Optimises exactly what open-set nearest-template matching needs.
+    Returns (loss, fraction of anchors whose hardest negative is farther than the hardest positive).
+    """
+    if normalize:
+        feats = F.normalize(feats, dim=-1)
+    d = torch.cdist(feats, feats)
+    same = labels[:, None] == labels[None, :]
+    eye = torch.eye(len(labels), dtype=torch.bool, device=feats.device)
+    pos_mask = same & ~eye
+    neg_mask = ~same
+    hardest_pos = (d * pos_mask).max(dim=1).values
+    hardest_neg = d.masked_fill(~neg_mask, float('inf')).min(dim=1).values
+    valid = pos_mask.any(1) & neg_mask.any(1)
+    loss = F.relu(hardest_pos - hardest_neg + margin)[valid].mean()
+    acc = (hardest_neg > hardest_pos)[valid].float().mean()
+    return loss, acc
+
+
+class LLMmapTrainerTriplet(pl.LightningModule):
+    """Open-set training with PK batches + batch-hard triplet loss on the L2-normalised features."""
+
+    def __init__(self, model: nn.Module, hparams: dict):
+        super().__init__()
+        self.net = model
+        self.save_hyperparameters(hparams, ignore=['model'])
+        self.margin = hparams.get('margin', 0.3)
+
+    def forward(self, x):
+        return self.net(x)
+
+    def _step(self, batch, stage):
+        x, y = batch
+        loss, acc = batch_hard_triplet_loss(self(x), y, self.margin)
+        self.log(f"{stage}_loss", loss, prog_bar=True, on_epoch=True, on_step=(stage == 'train'))
+        self.log(f"{stage}_acc", acc, prog_bar=True, on_epoch=True, on_step=False)
+        return loss
+
+    def training_step(self, batch, _):
+        return self._step(batch, 'train')
+
+    def validation_step(self, batch, _):
+        self._step(batch, 'val')
+
+    def configure_optimizers(self):
+        opt = _make_optimizer(self.parameters(), self.hparams["optimizer"])
+        return opt
 
 
 def train_model(output_dir, siamese, loader_train, loader_test, conf):
     hp = conf['inference_model']
-    
-    if siamese:
+    triplet = siamese and conf.get('open_set_loss', 'contrastive') == 'triplet'
+
+    if triplet:
+        inference_model = InferenceModelLLMmap(hp, is_for_siamese=True)
+        model = inference_model
+        litmod = LLMmapTrainerTriplet(model, hp)
+    elif siamese:
         model, inference_model = make_siamese_network(hp)
         litmod = LLMmapTrainerSiamese(model, hp)
     else:
-        model = InferenceModelLLMmap(hp) 
+        model = InferenceModelLLMmap(hp)
+        inference_model = model
         litmod = LLMmapTrainerClosed(model, hp)
-    
+
     early_stop = EarlyStopping(
         monitor="val_loss",
         mode="min",
         patience=conf['training']['early_stop_patience'],
         verbose=True
     )
-    
+
     ckpt_best = ModelCheckpoint(
-        dirpath      = output_dir,
-        monitor      = "val_loss",       # the metric we already log
-        mode         = "min",
-        filename     = "best-{epoch:02d}-{val_loss:.4f}",
-        save_top_k   = 1,               # keep only the best file
-        save_weights_only = False       # full Lightning checkpoint (recommended)
+        dirpath=output_dir,
+        monitor="val_loss",
+        mode="min",
+        filename="best-{epoch:02d}-{val_loss:.4f}",
+        save_top_k=1,
+        save_weights_only=True,
     )
-    
+
     trainer = pl.Trainer(
         default_root_dir=output_dir,
         max_epochs=conf['training']['max_epochs'],
-        accelerator="auto",          # CPU/GPU/TPU depending on hardware
+        accelerator="auto",
         devices="auto",
         callbacks=[early_stop, ckpt_best],
         log_every_n_steps=conf['training']['log_every_n_steps'],
+        gradient_clip_val=conf['training'].get('gradient_clip_val'),
     )
-    
+
     trainer.fit(litmod, loader_train, loader_test)
 
+    # Restore the best weights. (The original code called load_from_checkpoint with an
+    # `hp=` kwarg the LightningModules don't accept; loading the state dict directly is
+    # simpler and works on CPU-only machines for GPU-trained checkpoints.)
     best_model_path = ckpt_best.best_model_path
-    
-    trainer_class = LLMmapTrainerSiamese if siamese else LLMmapTrainerClosed
-    trainer = trainer_class.load_from_checkpoint(best_model_path, model=model, hp=hp)
+    if best_model_path:
+        state = torch.load(best_model_path, map_location='cpu', weights_only=False)['state_dict']
+        litmod.load_state_dict(state)
 
-    if siamese:
-        return trainer, inference_model
-    else:
-        return trainer, trainer.net
+    return litmod, inference_model

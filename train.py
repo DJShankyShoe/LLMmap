@@ -29,7 +29,8 @@ def main():
         description="Train LLMmap inference model given a configuration file (closed or open)."
     )
     parser.add_argument("--is_closed", action="store_true", default=False,
-                        help="Enable closed mode (Siamese contrastive loss). Default is open mode.")
+                        help="Train a closed-set classifier (softmax over the training LLMs). "
+                             "Default is open-set (metric learning + templates, can add LLMs without retraining).")
 
     parser.add_argument("conf_file",
                         help="Path to conf json file.")
@@ -42,6 +43,11 @@ def main():
     # 1) configuration --------------------------------------------------
     conf = read_conf_file(args.conf_file)
     conf['is_open'] = not args.is_closed
+    if conf['is_open'] and conf.get('open_set_loss', 'contrastive') == 'triplet':
+        conf['l2_normalize_features'] = True
+    if 'seed' in conf:
+        import pytorch_lightning as pl
+        pl.seed_everything(conf['seed'])
     print("\nLoaded configuration:")
     pprint(conf)
 

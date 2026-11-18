@@ -88,29 +88,50 @@ def template_generation(
     train_loader: torch.utils.data.DataLoader,
     test_loader: torch.utils.data.DataLoader,
     device: torch.device | str = "cpu",
+    l2_normalize: bool = False,
+    threshold_percentile: float = 95.0,
 ) -> Dict[str, object]:
     """
     Returns
     -------
     dict with keys:
-        y_true      – ground-truth labels (test set)
-        y_pred      – predicted labels
-        templates   – class centroids
-        accuracy    – prediction accuracy in [0,1]
+        y_true, y_pred      – ground-truth / predicted labels (test set)
+        templates           – class centroids (from the training split)
+        accuracy            – top-1 accuracy in [0,1]
+        top3_accuracy       – top-3 accuracy
+        open_set_threshold  – `threshold_percentile`-th percentile of the distance between a
+                              test trace and its *own* template; a live target farther than this
+                              from every template is probably an unknown model.
     """
-    # 1) templates from training split
+    def _norm(f):
+        return f / np.linalg.norm(f, axis=1, keepdims=True).clip(1e-12) if l2_normalize else f
+
     y_train, f_train = infer_features(feature_extractor, train_loader, device)
-    templates = build_templates(y_train, f_train)
+    templates = build_templates(y_train, _norm(f_train))
 
-    # 2) classify test split
     y_test, f_test = infer_features(feature_extractor, test_loader, device)
-    y_pred = predict_by_templates(f_test, templates)
+    f_test = _norm(f_test)
+    dists = np.linalg.norm(f_test[:, None, :] - templates[None, :, :], axis=-1)
+    dists = np.where(np.isnan(dists), np.inf, dists)
+    order = dists.argsort(axis=1)
+    y_pred = order[:, 0]
 
-    acc = (y_pred == y_test).mean().item()
+    acc = float((y_pred == y_test).mean())
+    top3 = float((order[:, :3] == y_test[:, None]).any(1).mean())
+    own = dists[np.arange(len(y_test)), y_test]
+    ths = float(np.percentile(own[np.isfinite(own)], threshold_percentile)) if len(own) else None
+
+    per_class = {}
+    for c in np.unique(y_test):
+        m = y_test == c
+        per_class[int(c)] = float((y_pred[m] == c).mean())
 
     return dict(
         y_true=y_test,
         y_pred=y_pred,
         templates=templates,
         accuracy=acc,
+        top3_accuracy=top3,
+        open_set_threshold=ths,
+        per_class_accuracy=per_class,
     )

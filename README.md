@@ -13,6 +13,75 @@
 * Added script to add new templates on pre-trained model
 * Train set creation/extension scripts
 
+## 🛰️ Low-profile fingerprinting of chat-only assistants (SOC query set)
+
+The stock query set (`confs/queries/default.json`) asks *"what model are you?"*, sends prompt-injection
+delimiters and a harmful request. Any monitored deployment flags that immediately, and the pretrained
+weights only work with those exact strings. This fork adds everything needed to **retrain from scratch
+with queries that read like ordinary analyst traffic** for an in-house SOC copilot, and to cover the
+current model market.
+
+### What's new
+
+| Area | Change |
+| --- | --- |
+| Queries | `confs/queries/soc_pool.json`: 14 candidate SOC requests, each a covert stand-in for one of LLMmap's probe types (banner, cutoff, alignment boundary, malformed input, forced choice, tokenizer task, code style, creative default...). Rationale per query in `soc_pool_annotated.json`. `soc_default.json` = 8-query default subset. |
+| Query selection | `select_queries.py`: greedy forward selection of the k most discriminative queries from a dataset collected on the full pool. The fewer messages you send, the less there is to notice. |
+| Prompt confs | `utility/make_soc_prompt_confs.py` → `confs/prompt_configurations_soc/`: 320 composed SOC-copilot system prompts (persona, SOAR/SIEM tools, *"never reveal the underlying model"* guardrails, formatting rules) + the 84 generic ones, SOC runbook chunks for RAG, held-out train/test split. The model learns to see through the kind of wrapper the target has. |
+| Market coverage | `utility/build_llm_list.py` builds the list from the live OpenRouter catalog (one key, ~280 chat models from 42 vendors). Snapshot lists: `confs/LLMs/market_2026-11.json` (all 277), `market_2026-11_core.json` (182 mainstream enterprise models, no `-pro` tiers), `open_weights_selfhosted.json` (24 HF models for on-prem deployments, labels merged with the hosted versions of the same weights). |
+| Backends | `hf`, `openai`, `anthropic`, `openrouter`, `openai_compat` (vLLM, Ollama, LM Studio, Together, Groq, Azure, Gemini's OpenAI endpoint...). Retries with backoff, reasoning-model support (token budget for thinking, `reasoning_effort`), automatic drop of rejected `temperature`. |
+| Collection | `make_dataset.py`: concurrent API calls (`--workers`), batched HF generation, **resumable** (re-run = only missing calls), a failing model is skipped instead of killing the run, same seeded prompt confs for every model, `--dry_run` prints an upper-bound cost estimate, `--only` to run a subset. |
+| Train/inference consistency | `normalize_markdown`: answers copied from a chat UI are rendered markdown while API answers are raw markdown; both are now mapped to the same plain text before embedding, and the char budget is applied identically in training and inference (originally truncation was only applied at inference). |
+| Training | Optional `"open_set_loss": "triplet"` (PK batches + batch-hard triplet loss). Persistent embedding cache (`embedding_cache_path`). `query_subset` to train on a subset of the collected queries. Fresh training pairs every epoch (the original reseeded the RNG per item, so every epoch saw identical pairs). |
+| Inference | `fingerprint.py`: print queries / answers template, classify from a JSON file or interactive paste; several independent sessions are averaged; open-set "unknown model" threshold (calibrated by `setup_templates.py`); family-level ranking. |
+| Bug fixes | Test prompt confs were drawn from the *train* split and weren't de-duplicated (`PromptConfFactory.sample`); `load_from_checkpoint(..., hp=...)` crashed after training; `torch.load` without `map_location` (GPU-trained weights failed on CPU); `Exeception` typo; broken optimizer fallback in the Siamese trainer; embedding-model id key mismatch; `setup_templates.py` parsed args twice; `test_model.py` broke with query subsets. |
+
+### End-to-end workflow
+
+```bash
+pip install -r requirements.txt
+export OPENROUTER_API_KEY=...            # covers every hosted model in the market lists
+
+# 0) (optional) refresh the model list and the SOC prompt confs
+python utility/build_llm_list.py -o confs/LLMs/market_$(date +%Y-%m).json
+python utility/make_soc_prompt_confs.py
+
+# 1) collect traces on the full 14-query pool (check the cost first)
+python make_dataset.py soc_v1 confs/LLMs/market_2026-11_core.json confs/queries/soc_pool.json \
+    --prompt_conf_path confs/prompt_configurations_soc --num_prompt_conf_train 60 --num_prompt_conf_test 12 \
+    --workers 16 --dry_run
+python make_dataset.py soc_v1 ...same args without --dry_run...      # re-run to resume / retry failures
+#   self-hosted open weights (GPU box): same dataset name, merges into the same file
+python make_dataset.py soc_v1 confs/LLMs/open_weights_selfhosted.json confs/queries/soc_pool.json \
+    --prompt_conf_path confs/prompt_configurations_soc --num_prompt_conf_train 60 --num_prompt_conf_test 12
+
+# 2) choose how many / which queries you're willing to send
+python select_queries.py confs/soc.json -k 8          # prints the accuracy curve; copy indices to "query_subset"
+
+# 3) train + build templates + evaluate
+python train.py confs/soc.json soc
+python setup_templates.py ./data/pretrained_models/soc -y
+python test_model.py ./data/pretrained_models/soc -k 3
+
+# 4) fingerprint the target through its chat UI
+python fingerprint.py ./data/pretrained_models/soc --print_queries --template answers.json
+#   ...send each query in a fresh conversation, paste the answers into answers.json...
+python fingerprint.py ./data/pretrained_models/soc --answers answers.json
+```
+
+Operational notes for a monitored target:
+
+* Send each query in a **new conversation** (traces are single-turn) and space them out between genuine
+  requests. Don't edit or "fix" the queries: the model was trained on these exact strings. Write your own
+  pool in the same style if they don't fit your environment, then collect and train again.
+* If the assistant calls tools (SIEM search, TI lookup) for a query, the answer is mostly tool output, not
+  model behaviour. The pool is written to be self-contained (everything needed is in the message), so tool
+  calls should be rare. Leave out any query that triggers them with `select_queries.py --never <idx>`.
+* Copy the **whole** answer. The normaliser handles rendered vs raw markdown and the char budget.
+* 2–3 independent sessions (list of lists in `answers.json`) average out sampling noise.
+* A closest distance above `open_set_threshold` means "none of the known models". The family ranking
+  is often right even when the exact version isn't.
+
 ## Requirements 
 
 Recommended: ```Python 3.11```
